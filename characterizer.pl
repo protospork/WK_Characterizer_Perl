@@ -50,7 +50,7 @@ sub build_xml { #doing this manually b/c I don't know of an XML framework that's
     );
 
     for (sort keys %{$_[0]}){
-        push @xml, '<entry key="'.$_.'" kanji="'.(join ',', @{$_[0]{$_}}).'" />';
+        push @xml, '<entry key="'.$_.'" kanji="'.(join ';', @{$_[0]{$_}}).'" />';
     }
 
     push @xml, '</root>';
