@@ -6,51 +6,79 @@ use File::Slurp;
 
 # look into rewriting this in jquery and hosting it on github pages
 
-my $raw_json = call_api($ARGV[0]);
-my $kanji_list = process_response($raw_json);
-my @xml = build_xml($kanji_list);
-write_file('wanikani.xml', {binmode => ':utf8' }, @xml);
+my ($mode,$raw_json) = call_api(@ARGV);
+my $kanji_list = process_response($mode,$raw_json);
+my @xml = build_xml($mode,$kanji_list);
+write_file('wanikani-'.$mode.'.xml', {binmode => ':utf8' }, @xml);
 
-sub call_api { # entirely functional
-    #first, validate the api key
-    if ($_[0] !~ /^[[:xdigit:]]{32}$/){
-        die "$_[0] doesn't look like a WaniKani API key."; #don't die out of a function
+sub call_api {
+
+    my ($mode,$key,$url) = ($_[0],$_[-1],'http://www.wanikani.com/api/user/');
+
+    if ($key !~ /^[[:xdigit:]]{32}$/){
+        die "$key doesn't look like a WaniKani API key."; #shouldn't die out of a function
+    }
+    $url .= $key;
+
+    # K for standard kanji, V for vocab.
+    if ($mode !~ s/^-?([vk]).*/uc $1/ie){
+        $mode = 'K';
+    }
+    if ($mode eq 'V'){
+        $url .= '/vocabulary/';
+    } else {
+        $url .= '/kanji/';
     }
 
     #grab/check the page
-    my $req = LWP::UserAgent->new()->get('http://www.wanikani.com/api/user/'.$_[0].'/kanji/');
+    my $req = LWP::UserAgent->new()->get($url);
     if (! $req->is_success){
         die $req->code.' '.$req->content_length;
     }
 
-    return $req->decoded_content;
+    return ($mode,$req->decoded_content);
 }
 
 sub process_response {
     my $json;
-    eval { $json = JSON->new->utf8->decode($_[0]); };
+    eval { $json = JSON->new->utf8->decode($_[1]); };
     if ($@){ die $@; }
 
-    my %kanji;
-    my $i = $#{$json->{'requested_information'}};
-    while ($i >= 0){
-        my $chr = $json->{'requested_information'}[$i];
-        for (split /,\s+/, $chr->{'meaning'}){
-            push @{$kanji{$_}}, $chr->{'character'};
+    if ($_[0] eq 'K'){
+        my %kanji;
+        my $i = $#{$json->{'requested_information'}};
+        while ($i >= 0){
+            my $chr = $json->{'requested_information'}[$i];
+            for (split /,\s+/, $chr->{'meaning'}){
+                push @{$kanji{$_}}, $chr->{'character'};
+            }
+            $i--;
         }
-        $i--;
+        return \%kanji;
+    } elsif ($_[0] eq 'V'){ #why the subtle API difference?
+        my %vocab;
+        my $i = $#{$json->{'requested_information'}{'general'}};
+        while ($i >= 0){
+            my $chr = $json->{'requested_information'}{'general'}[$i];
+            for (split /,\s+/, $chr->{'meaning'}){
+                push @{$vocab{$_}}, $chr->{'character'};
+            }
+            $i--;
+        }
+        return \%vocab;
     }
-    return \%kanji;
 }
 
 sub build_xml { #doing this manually b/c I don't know of an XML framework that's not worthless
-    my @xml = ( #boilerplate
+    my @xml = (
         '<?xml version="1.0" encoding="utf-8"?>',
-        '<root title="WaniKani">'
     );
+    $_[0] eq 'V'
+    ? push @xml, '<root title="WaniKani (Vocab)">'
+    : push @xml, '<root title="WaniKani (Kanji)">';
 
-    for (sort keys %{$_[0]}){
-        push @xml, '<entry key="'.$_.'" kanji="'.(join ';', @{$_[0]{$_}}).'" />';
+    for (sort keys %{$_[1]}){
+        push @xml, '<entry key="'.$_.'" kanji="'.(join ';', @{$_[1]{$_}}).'" />';
     }
 
     push @xml, '</root>';
